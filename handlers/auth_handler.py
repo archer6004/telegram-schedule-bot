@@ -151,9 +151,12 @@ async def cmd_connect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     url = get_auth_url(user.id)
     await update.message.reply_text(
         "🔗 *Google Calendar 연동*\n\n"
-        "아래 링크에서 Google 계정을 인증한 뒤,\n"
-        "받은 코드를 이 채팅에 붙여넣어 주세요.\n\n"
-        f"[인증 링크 열기]({url})",
+        "*① 아래 링크를 탭해서 Google 계정을 승인하세요.*\n\n"
+        f"[👉 인증 링크 열기]({url})\n\n"
+        "*② 승인 후 브라우저 주소창에 뜨는 URL에서*\n"
+        "`code=` 뒤 ~ `&` 앞의 값을 복사해 주세요.\n"
+        "예: `http://localhost/?code=`*`4/0AXXX...`*`&scope=...`\n\n"
+        "*③ 복사한 코드를 이 채팅에 붙여넣으세요.*",
         parse_mode="Markdown",
         disable_web_page_preview=True,
     )

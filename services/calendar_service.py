@@ -25,17 +25,20 @@ def get_credentials(telegram_id: int) -> Optional[Credentials]:
     return creds
 
 
+REDIRECT_URI = "https://archer6004.github.io/telegram-schedule-bot/oauth/"
+
+
 def get_auth_url(telegram_id: int) -> str:
     flow = Flow.from_client_secrets_file(
         GOOGLE_CREDENTIALS_PATH,
         scopes=GOOGLE_SCOPES,
-        redirect_uri="urn:ietf:wg:oauth:2.0:oob",
+        redirect_uri=REDIRECT_URI,
     )
-    flow.code_verifier = str(telegram_id)
     url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         state=str(telegram_id),
+        prompt="consent",
     )
     return url
 
@@ -45,13 +48,15 @@ def exchange_code(telegram_id: int, code: str) -> bool:
         flow = Flow.from_client_secrets_file(
             GOOGLE_CREDENTIALS_PATH,
             scopes=GOOGLE_SCOPES,
-            redirect_uri="urn:ietf:wg:oauth:2.0:oob",
+            redirect_uri=REDIRECT_URI,
         )
         flow.fetch_token(code=code)
         creds = flow.credentials
         db.save_google_token(telegram_id, json.loads(creds.to_json()))
         return True
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("exchange_code 실패: %s", e)
         return False
 
 
