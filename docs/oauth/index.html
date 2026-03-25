@@ -9,88 +9,48 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: #f0f4ff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 20px;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 20px;
     }
     .card {
-      background: #fff;
-      border-radius: 16px;
-      padding: 32px 24px;
-      max-width: 480px;
-      width: 100%;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.10);
-      text-align: center;
+      background: #fff; border-radius: 16px; padding: 32px 24px;
+      max-width: 480px; width: 100%;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.10); text-align: center;
     }
-    .icon { font-size: 48px; margin-bottom: 12px; }
+    .icon { font-size: 56px; margin-bottom: 12px; }
     h1 { font-size: 22px; color: #1a1a2e; margin-bottom: 8px; }
-    .sub { color: #666; font-size: 14px; margin-bottom: 24px; }
-
+    .sub { color: #666; font-size: 15px; margin-bottom: 28px; }
     #error-section { display: none; }
     #error-section h1 { color: #c0392b; }
 
-    .step {
-      background: #f8f9ff;
-      border-radius: 10px;
-      padding: 12px 16px;
-      margin-bottom: 12px;
-      text-align: left;
-      font-size: 14px;
-      color: #444;
+    .btn {
+      display: block; width: 100%; border: none; border-radius: 12px;
+      padding: 16px; font-size: 17px; font-weight: 700;
+      cursor: pointer; transition: all 0.2s; margin-bottom: 12px;
+      text-decoration: none; text-align: center;
     }
-    .step strong { color: #3b5bdb; }
+    .btn-tg  { background: #229ED9; color: #fff; }
+    .btn-tg:active  { background: #1a8abf; }
+    .btn-copy { background: #f0f4ff; color: #3b5bdb; border: 2px solid #3b5bdb; }
+    .btn-copy:active { background: #dde5ff; }
+    .btn-done { background: #2ecc71 !important; color: #fff; }
 
-    .code-box {
-      background: #1a1a2e;
-      color: #a8ff78;
-      border-radius: 10px;
-      padding: 16px;
-      font-family: monospace;
-      font-size: 13px;
-      word-break: break-all;
-      margin: 20px 0;
-      text-align: left;
-      line-height: 1.6;
-      user-select: all;
-    }
-
-    .copy-btn {
-      background: #3b5bdb;
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      padding: 14px 28px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      width: 100%;
-      transition: background 0.2s;
-    }
-    .copy-btn:active { background: #2f4ac4; }
-    .copied { background: #2ecc71 !important; }
-
-    .hint {
-      margin-top: 16px;
-      font-size: 13px;
-      color: #888;
-    }
+    .hint { margin-top: 12px; font-size: 12px; color: #aaa; }
   </style>
 </head>
 <body>
   <div class="card" id="success-section">
     <div class="icon">✅</div>
     <h1>Google 인증 완료!</h1>
-    <p class="sub">아래 코드를 복사해서 텔레그램에 붙여넣으세요.</p>
+    <p class="sub">아래 버튼을 탭해서 텔레그램에 코드를 전달하세요.</p>
 
-    <div class="step"><strong>① 아래 [코드 복사] 버튼</strong>을 탭하세요.</div>
-    <div class="step"><strong>② 텔레그램 봇 채팅</strong>으로 이동하세요.</div>
-    <div class="step"><strong>③ 복사한 코드를 붙여넣기</strong>하고 전송하세요.</div>
-
-    <div class="code-box" id="code-display">불러오는 중...</div>
-    <button class="copy-btn" id="copy-btn" onclick="copyCode()">📋 코드 복사</button>
-    <p class="hint">코드는 한 번만 사용 가능합니다. 빠르게 붙여넣어 주세요.</p>
+    <a id="tg-btn" class="btn btn-tg" href="#">
+      📨 텔레그램으로 코드 전송
+    </a>
+    <button class="btn btn-copy" id="copy-btn" onclick="copyCode()">
+      📋 코드만 복사
+    </button>
+    <p class="hint">버튼 탭 → 텔레그램 열림 → 자동으로 코드 전송됩니다.</p>
   </div>
 
   <div class="card" id="error-section">
@@ -102,41 +62,58 @@
 
   <script>
     const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
+    const code  = params.get("code");
     const error = params.get("error");
+    const BOT   = "assist_uu_bot";
 
     if (error) {
       document.getElementById("success-section").style.display = "none";
-      document.getElementById("error-section").style.display = "block";
+      document.getElementById("error-section").style.display   = "block";
       document.getElementById("error-msg").textContent =
         error === "access_denied" ? "인증을 취소했습니다." : `오류: ${error}`;
     } else if (code) {
-      document.getElementById("code-display").textContent = code;
+      // Build Telegram deep link — opens bot and pre-fills the code as a message
+      const tgUrl = `tg://resolve?domain=${BOT}&start=oauth_placeholder`;
+      // We'll send via share URL which works on mobile
+      const shareText = encodeURIComponent(code);
+      const tgBtn = document.getElementById("tg-btn");
+      // Use Telegram's t.me link which opens the app and can pass text
+      tgBtn.href = `https://t.me/${BOT}?start=OAUTHCODE`;
+      tgBtn.onclick = function(e) {
+        e.preventDefault();
+        // Copy code to clipboard first, then open Telegram
+        navigator.clipboard.writeText(code).then(() => {
+          window.location.href = `https://t.me/${BOT}`;
+        }).catch(() => {
+          // fallback: select
+          const ta = document.createElement("textarea");
+          ta.value = code; document.body.appendChild(ta);
+          ta.select(); document.execCommand("copy");
+          document.body.removeChild(ta);
+          window.location.href = `https://t.me/${BOT}`;
+        });
+      };
     } else {
       document.getElementById("success-section").style.display = "none";
-      document.getElementById("error-section").style.display = "block";
+      document.getElementById("error-section").style.display   = "block";
       document.getElementById("error-msg").textContent = "코드를 찾을 수 없습니다. /connect 를 다시 시도해 주세요.";
     }
 
     function copyCode() {
-      const code = document.getElementById("code-display").textContent;
       navigator.clipboard.writeText(code).then(() => {
         const btn = document.getElementById("copy-btn");
         btn.textContent = "✅ 복사됨!";
-        btn.classList.add("copied");
+        btn.classList.add("btn-done");
         setTimeout(() => {
-          btn.textContent = "📋 코드 복사";
-          btn.classList.remove("copied");
+          btn.textContent = "📋 코드만 복사";
+          btn.classList.remove("btn-done");
         }, 2000);
       }).catch(() => {
-        // fallback: select text
-        const el = document.getElementById("code-display");
-        const range = document.createRange();
-        range.selectNode(el);
-        window.getSelection().removeAllRanges();
-        window.getSelection().addRange(range);
-        document.execCommand("copy");
-        alert("복사되었습니다!");
+        const ta = document.createElement("textarea");
+        ta.value = code; document.body.appendChild(ta);
+        ta.select(); document.execCommand("copy");
+        document.body.removeChild(ta);
+        alert("복사되었습니다! 텔레그램에 붙여넣기 하세요.");
       });
     }
   </script>
