@@ -12,6 +12,7 @@ from apscheduler.triggers.cron import CronTrigger
 from config import TIMEZONE, DEFAULT_REMINDER_MINUTES
 import db as repo
 from services.notification_service import send_reminder, send_morning_briefing
+from services.backup_service import run_backup
 
 logger = logging.getLogger(__name__)
 tz = pytz.timezone(TIMEZONE)
@@ -36,8 +37,21 @@ def init_scheduler(bot) -> None:
     )
 
     # 10분마다 전송 완료된 오래된 리마인더 정리 (DB bloat 방지)
-    # Idea from workspace/telegram-chatbot auto-cleanup job
     scheduler.add_job(cleanup_old_reminders, "interval", minutes=10, id="reminder_cleanup")
+
+    # 매일 새벽 2시 DB 백업 (Google Drive 백업 폴더, 7일 보관)
+    scheduler.add_job(
+        run_daily_backup,
+        CronTrigger(hour=2, minute=0, timezone=tz),
+        id="db_backup",
+    )
+
+    # 매일 새벽 3시 오래된 데이터 정리
+    scheduler.add_job(
+        cleanup_old_data,
+        CronTrigger(hour=3, minute=0, timezone=tz),
+        id="data_cleanup",
+    )
 
     scheduler.start()
     logger.info("APScheduler 시작 완료")
@@ -57,15 +71,43 @@ async def morning_briefing() -> None:
         await send_morning_briefing(_bot, user)
 
 
+async def run_daily_backup() -> None:
+    """매일 새벽 2시 DB 백업 실행."""
+    try:
+        path = run_backup()
+        if path:
+            logger.info("DB 백업 완료 → %s", path)
+    except Exception as e:
+        logger.error("DB 백업 실패: %s", e)
+
+
 async def cleanup_old_reminders() -> None:
-    """
-    전송 완료된 리마인더 중 30일 이상 지난 항목을 삭제합니다.
-    Idea from workspace/telegram-chatbot delete_past_schedules pattern.
-    """
+    """전송 완료된 리마인더 중 30일 이상 지난 항목을 삭제합니다."""
     cutoff = (datetime.now(tz) - timedelta(days=30)).isoformat()
     deleted = repo.delete_past_sent_reminders(cutoff)
     if deleted:
         logger.info("오래된 리마인더 %d건 정리 완료", deleted)
+
+
+async def cleanup_old_data() -> None:
+    """매일 새벽 3시 — 오래된 로그/충돌 기록 자동 삭제."""
+    now = datetime.now(tz)
+
+    # 리마인더: sent=1, 30일 경과
+    r_cutoff = (now - timedelta(days=30)).isoformat()
+    r = repo.delete_past_sent_reminders(r_cutoff)
+
+    # 감사 로그: 90일 경과
+    a_cutoff = (now - timedelta(days=90)).isoformat()
+    a = repo.delete_old_audit_logs(a_cutoff)
+
+    # 충돌 기록: resolved, 60일 경과
+    c_cutoff = (now - timedelta(days=60)).isoformat()
+    c = repo.delete_old_resolved_conflicts(c_cutoff)
+
+    total = r + a + c
+    if total:
+        logger.info("일일 데이터 정리 완료 — 리마인더 %d, 로그 %d, 충돌기록 %d건 삭제", r, a, c)
 
 
 def schedule_reminders_for_event(

@@ -14,6 +14,9 @@ from telegram import Bot
 
 from config import TIMEZONE
 from services.calendar_service import list_events, format_event_list
+from services.weather_service import (
+    get_today_summary, format_event_weather_hint,
+)
 
 logger = logging.getLogger(__name__)
 tz = pytz.timezone(TIMEZONE)
@@ -38,17 +41,34 @@ def _build_reminder_text(reminder: dict) -> str:
 
 
 def _build_briefing_text(today: datetime, events: list) -> str:
-    count = len(events)
+    count      = len(events)
     date_label = today.strftime("%m/%d %a")
+    weather    = get_today_summary()
+
     if count == 0:
         return (
             f"🌅 좋은 아침이에요!\n"
+            f"{weather}\n\n"
             f"📋 오늘 ({date_label}) 일정이 없습니다. 여유로운 하루 되세요! 😊"
         )
-    emoji = "💪" if count >= 3 else "😊"
-    event_text = format_event_list(events)
+
+    # 각 일정에 날씨 힌트 붙이기 (비/눈 등 주의 날씨만)
+    event_lines = []
+    for e in events:
+        dt_str = e.get("start", {}).get("dateTime", "")
+        hint   = format_event_weather_hint(dt_str) if dt_str else ""
+        title  = e.get("summary", "(제목없음)")
+        time_s = dt_str[11:16] if "T" in dt_str else "종일"
+        line   = f"• {time_s} *{title}*"
+        if hint:
+            line += f"\n  {hint}"
+        event_lines.append(line)
+
+    emoji      = "💪" if count >= 3 else "😊"
+    event_text = "\n".join(event_lines)
     return (
         f"🌅 좋은 아침이에요!\n"
+        f"{weather}\n\n"
         f"📋 오늘 ({date_label}) 일정 *{count}건*\n\n"
         f"{event_text}\n\n"
         f"총 {count}건 · {emoji}"

@@ -13,17 +13,20 @@ from telegram.ext import ContextTypes
 import pytz
 
 from config import TIMEZONE, DEFAULT_REMINDER_MINUTES
+from constants import KEY_PENDING_TEAM_EVENT
 import db as db
 from services import calendar_service
+from services.calendar_service import delete_event_by_id
 from services.scheduler_service import schedule_reminders_for_event
 
 tz = pytz.timezone(TIMEZONE)
 
 # ── Wizard state keys (stored in ctx.user_data['wizard']['state']) ────────────
-WIZ_TITLE       = "WIZ_TITLE"
-WIZ_DATE_MANUAL = "WIZ_DATE_MANUAL"
-WIZ_TIME_MANUAL = "WIZ_TIME_MANUAL"
-WIZ_REMINDERS   = "WIZ_REMINDERS"
+WIZ_TITLE         = "WIZ_TITLE"
+WIZ_DATE_MANUAL   = "WIZ_DATE_MANUAL"
+WIZ_TIME_MANUAL   = "WIZ_TIME_MANUAL"
+WIZ_REMINDERS     = "WIZ_REMINDERS"
+WIZ_MEMBER_SELECT = "WIZ_MEMBER_SELECT"
 
 
 def _now() -> datetime:
@@ -34,9 +37,64 @@ def _now() -> datetime:
 
 async def wizard_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """'📅 일정 등록' 버튼 또는 /add 명령어로 진입."""
-    ctx.user_data['wizard'] = {'state': WIZ_TITLE}
+    ctx.user_data['wizard'] = {'state': WIZ_TITLE, 'is_team': False}
     await update.message.reply_text(
         "✏️ 일정 *제목*을 입력해 주세요.\n예: 팀 미팅, 점심 약속",
+        parse_mode="Markdown",
+    )
+
+
+async def cancel_wizard_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """'🗑 일정 취소' 버튼으로 진입 — 향후 2주 일정 목록을 버튼으로 표시."""
+    uid = update.effective_user.id
+    now = _now()
+    t_min = now.isoformat()
+    t_max = (now + timedelta(days=14)).isoformat()
+
+    try:
+        events = calendar_service.list_events(uid, t_min, t_max)
+    except PermissionError:
+        await update.message.reply_text(
+            "⚠️ Google Calendar가 연동되지 않았습니다. /connect 를 입력해 주세요."
+        )
+        return
+
+    # 종일 이벤트 포함, 최대 10개
+    events = events[:10]
+    if not events:
+        await update.message.reply_text("📋 향후 2주 내 취소할 일정이 없습니다.")
+        return
+
+    ctx.user_data['cancel_wizard'] = {'events': events}
+    await update.message.reply_text(
+        "🗑 *취소할 일정을 선택해 주세요*\n_(향후 2주 일정)_",
+        parse_mode="Markdown",
+        reply_markup=_cancel_event_keyboard(events),
+    )
+
+
+def _cancel_event_keyboard(events: list) -> InlineKeyboardMarkup:
+    buttons = []
+    for i, e in enumerate(events):
+        title = (e.get('summary') or '(제목없음)')[:18]
+        dt = e.get('start', {})
+        if 'dateTime' in dt:
+            t = datetime.fromisoformat(dt['dateTime']).astimezone(tz).strftime('%m/%d %H:%M')
+        else:
+            t = (dt.get('date') or '')[:10]
+        buttons.append([InlineKeyboardButton(
+            f"🗑 {t}  {title}",
+            callback_data=f"wiz_del_sel_{i}",
+        )])
+    buttons.append([InlineKeyboardButton("❌ 닫기", callback_data="wiz_del_abort")])
+    return InlineKeyboardMarkup(buttons)
+
+
+async def team_wizard_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """'👥 팀 일정 등록' 버튼으로 진입 — 마지막 단계에서 중요도 선택 추가."""
+    ctx.user_data['wizard'] = {'state': WIZ_TITLE, 'is_team': True}
+    await update.message.reply_text(
+        "👥 팀 일정 *제목*을 입력해 주세요.\n예: 전체 회의, 스프린트 리뷰",
         parse_mode="Markdown",
     )
 
@@ -181,10 +239,119 @@ async def wizard_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
     data = query.data
     uid  = query.from_user.id
 
-    # ── Cancel ──────────────────────────────────────────────────────────────
+    # ── 일정 취소 위저드 ─────────────────────────────────────────────────────
+    if data == "wiz_del_abort":
+        ctx.user_data.pop('cancel_wizard', None)
+        await query.edit_message_text("❌ 취소가 중단되었습니다.")
+        return
+
+    if data == "wiz_del_back":
+        cw = ctx.user_data.get('cancel_wizard')
+        if not cw:
+            await query.edit_message_text("⚠️ 세션이 만료되었습니다. 다시 시작해 주세요.")
+            return
+        await query.edit_message_text(
+            "🗑 *취소할 일정을 선택해 주세요*\n_(향후 2주 일정)_",
+            parse_mode="Markdown",
+            reply_markup=_cancel_event_keyboard(cw['events']),
+        )
+        return
+
+    if data.startswith("wiz_del_sel_"):
+        idx = int(data[len("wiz_del_sel_"):])
+        cw = ctx.user_data.get('cancel_wizard')
+        if not cw or idx >= len(cw['events']):
+            await query.edit_message_text("⚠️ 세션이 만료되었습니다. 다시 시작해 주세요.")
+            return
+        e     = cw['events'][idx]
+        title = e.get('summary') or '(제목없음)'
+        dt    = e.get('start', {})
+        if 'dateTime' in dt:
+            t = datetime.fromisoformat(dt['dateTime']).astimezone(tz).strftime('%Y년 %m월 %d일 %H:%M')
+        else:
+            t = (dt.get('date') or '')[:10]
+        await query.edit_message_text(
+            f"🗑 *이 일정을 취소하시겠습니까?*\n\n"
+            f"📌 {title}\n📅 {t}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ 취소 확인", callback_data=f"wiz_del_confirm_{idx}"),
+                InlineKeyboardButton("◀ 목록으로",   callback_data="wiz_del_back"),
+            ]]),
+        )
+        return
+
+    if data.startswith("wiz_del_confirm_"):
+        idx = int(data[len("wiz_del_confirm_"):])
+        cw = ctx.user_data.get('cancel_wizard')
+        if not cw or idx >= len(cw['events']):
+            await query.edit_message_text("⚠️ 세션이 만료되었습니다. 다시 시작해 주세요.")
+            return
+        e        = cw['events'][idx]
+        title    = e.get('summary') or '(제목없음)'
+        event_id = e.get('id', '')
+        try:
+            delete_event_by_id(uid, event_id)
+            await query.edit_message_text(
+                f"✅ *'{title}'* 일정이 취소되었습니다.", parse_mode="Markdown"
+            )
+        except Exception as ex:
+            await query.edit_message_text(f"❌ 취소 중 오류가 발생했습니다: {ex}")
+        finally:
+            ctx.user_data.pop('cancel_wizard', None)
+        return
+
+    # ── 일정 등록 위저드 취소 ────────────────────────────────────────────────
     if data == "wiz_cancel":
         ctx.user_data.pop('wizard', None)
         await query.edit_message_text("❌ 일정 등록이 취소되었습니다.")
+        return
+
+    # ── 팀원 선택: 완료 ──────────────────────────────────────────────────────
+    if data == "wiz_member_done":
+        wizard = ctx.user_data.get('wizard')
+        if not wizard or wizard.get('state') != WIZ_MEMBER_SELECT:
+            await query.edit_message_text("⚠️ 세션이 만료됐습니다. 다시 시작해 주세요.")
+            return
+        from handlers.team_handler import PRIORITY_BUTTONS
+        invited_uids = list(wizard.get('invited_uids', set()))
+        ctx.user_data[KEY_PENDING_TEAM_EVENT] = {
+            "title":            wizard['title'],
+            "start":            wizard['start_iso'],
+            "end":              wizard['end_iso'],
+            "location":         "",
+            "description":      "",
+            "attendees":        [],
+            "reminder_minutes": wizard['minutes_list'],
+            "invited_uids":     invited_uids,
+        }
+        rem_labels = wizard.get('rem_labels', ["기본값 (1시간·10분 전)"])
+        ctx.user_data.pop('wizard', None)
+        await query.edit_message_text(
+            f"👥 *{wizard['title']}*\n"
+            f"📅 {wizard['date']} {wizard['time']}\n"
+            f"🔔 알림: {', '.join(rem_labels)}\n"
+            f"👤 초대: {len(invited_uids)}명\n\n"
+            f"팀 일정 *중요도*를 선택해 주세요.\n"
+            f"_(충돌 발생 시 우선순위에 따라 자동 조율됩니다)_",
+            parse_mode="Markdown",
+            reply_markup=PRIORITY_BUTTONS,
+        )
+        return
+
+    # ── 팀원 선택: 토글 ──────────────────────────────────────────────────────
+    if data.startswith("wiz_member_"):
+        wizard = ctx.user_data.get('wizard')
+        if not wizard or wizard.get('state') != WIZ_MEMBER_SELECT:
+            await query.edit_message_text("⚠️ 세션이 만료됐습니다. 다시 시작해 주세요.")
+            return
+        toggle_uid = int(data[len("wiz_member_"):])
+        invited    = wizard.setdefault('invited_uids', set())
+        if toggle_uid in invited:
+            invited.discard(toggle_uid)
+        else:
+            invited.add(toggle_uid)
+        await _show_member_select(query, uid, wizard)
         return
 
     wizard = ctx.user_data.get('wizard')
@@ -243,11 +410,25 @@ async def _finish_wizard(query, ctx, uid: int, wizard: dict) -> None:
         start_iso = f"{date}T{time_str}:00+09:00"
         end_iso   = f"{date}T{_add_hour(time_str)}:00+09:00"
 
+        # ── 팀 일정: 팀원 선택 화면으로 이동 ────────────────────────────
+        if wizard.get('is_team'):
+            minutes_list = _build_minutes(start_iso, rems)
+            rem_labels   = _reminder_labels(rems) or ["기본값 (1시간·10분 전)"]
+            # wizard에 이벤트 정보 저장 (팀원 선택 후 KEY_PENDING_TEAM_EVENT로 이동)
+            wizard['start_iso']    = start_iso
+            wizard['end_iso']      = end_iso
+            wizard['minutes_list'] = minutes_list if minutes_list else DEFAULT_REMINDER_MINUTES
+            wizard['rem_labels']   = rem_labels
+            wizard['state']        = WIZ_MEMBER_SELECT
+            wizard.setdefault('invited_uids', set())
+            await _show_member_select(query, uid, wizard)
+            return  # wizard는 아직 유지
+
+        # ── 개인 일정: 바로 등록 ─────────────────────────────────────────
         event = calendar_service.create_event(
             uid, title=title, start=start_iso, end=end_iso
         )
 
-        # Build minutes list from selected reminder options
         minutes_list = _build_minutes(start_iso, rems)
         schedule_reminders_for_event(
             uid, event["id"], title, start_iso,
@@ -271,6 +452,42 @@ async def _finish_wizard(query, ctx, uid: int, wizard: dict) -> None:
         await query.edit_message_text(f"❌ 등록 중 오류가 발생했습니다: {e}")
     finally:
         ctx.user_data.pop('wizard', None)
+
+
+# ── 팀원 선택 ─────────────────────────────────────────────────────────────────
+
+async def _show_member_select(query, organizer_uid: int, wizard: dict) -> None:
+    """팀원 선택 화면 (토글 방식)."""
+    all_users = db.get_all_users()
+    approved  = [u for u in all_users
+                 if u.get('status') == 'APPROVED' and u['telegram_id'] != organizer_uid]
+    invited   = wizard.get('invited_uids', set())
+
+    buttons = []
+    for u in approved:
+        mark = "✅ " if u['telegram_id'] in invited else "👤 "
+        name = u.get('full_name') or str(u['telegram_id'])
+        dept = f" ({u['department']})" if u.get('department') else ""
+        buttons.append([InlineKeyboardButton(
+            f"{mark}{name}{dept}",
+            callback_data=f"wiz_member_{u['telegram_id']}",
+        )])
+
+    n = len(invited)
+    next_label = f"➡️ 다음 ({n}명 선택)" if n > 0 else "➡️ 다음 (선택 없이 진행)"
+    buttons.append([InlineKeyboardButton(next_label, callback_data="wiz_member_done")])
+    buttons.append([InlineKeyboardButton("❌ 취소", callback_data="wiz_cancel")])
+
+    title = wizard.get('title', '')
+    date  = wizard.get('date', '')
+    time  = wizard.get('time', '')
+    await query.edit_message_text(
+        f"👥 *함께할 팀원을 선택해 주세요*\n"
+        f"_{title} / {date} {time}_\n\n"
+        f"선택하지 않으면 참석 알림 없이 등록됩니다.",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
