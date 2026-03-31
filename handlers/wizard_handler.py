@@ -413,11 +413,17 @@ async def _finish_wizard(query, ctx, uid: int, wizard: dict) -> None:
         # ── 팀 일정: 팀원 선택 화면으로 이동 ────────────────────────────
         if wizard.get('is_team'):
             minutes_list = _build_minutes(start_iso, rems)
+            # ✅ 빈 리스트 체크: 반드시 list[int] 형태 보증
+            minutes_list = minutes_list if (minutes_list and isinstance(minutes_list, list)) else DEFAULT_REMINDER_MINUTES
+            # 다시 한 번 검증: DEFAULT_REMINDER_MINUTES도 list[int] 타입 확인
+            if not isinstance(minutes_list, list):
+                minutes_list = DEFAULT_REMINDER_MINUTES
+
             rem_labels   = _reminder_labels(rems) or ["기본값 (1시간·10분 전)"]
             # wizard에 이벤트 정보 저장 (팀원 선택 후 KEY_PENDING_TEAM_EVENT로 이동)
             wizard['start_iso']    = start_iso
             wizard['end_iso']      = end_iso
-            wizard['minutes_list'] = minutes_list if minutes_list else DEFAULT_REMINDER_MINUTES
+            wizard['minutes_list'] = minutes_list  # ✅ 반드시 list[int]
             wizard['rem_labels']   = rem_labels
             wizard['state']        = WIZ_MEMBER_SELECT
             wizard.setdefault('invited_uids', set())
@@ -430,9 +436,14 @@ async def _finish_wizard(query, ctx, uid: int, wizard: dict) -> None:
         )
 
         minutes_list = _build_minutes(start_iso, rems)
+        # ✅ 빈 리스트 체크: 반드시 list[int] 형태 보증
+        minutes_list = minutes_list if (minutes_list and isinstance(minutes_list, list)) else DEFAULT_REMINDER_MINUTES
+        if not isinstance(minutes_list, list):
+            minutes_list = DEFAULT_REMINDER_MINUTES
+
         schedule_reminders_for_event(
             uid, event["id"], title, start_iso,
-            minutes_list if minutes_list else DEFAULT_REMINDER_MINUTES,
+            minutes_list,  # ✅ 반드시 list[int]
         )
 
         rem_labels = _reminder_labels(rems) or ["기본값 (1시간·10분 전)"]

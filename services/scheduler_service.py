@@ -118,6 +118,27 @@ def schedule_reminders_for_event(
     minutes_before: list[int],
 ) -> None:
     """일정 생성 후 리마인더를 DB에 등록합니다."""
+    # ✅ 방어적 코딩: minutes_before가 list[int]인지 검증
+    if not isinstance(minutes_before, list):
+        logger.warning(
+            "❌ 리마인더 등록 실패: minutes_before는 list[int]여야 합니다 (받은 타입: %s)",
+            type(minutes_before).__name__
+        )
+        # 기본값으로 대체
+        from config import DEFAULT_REMINDER_MINUTES
+        minutes_before = DEFAULT_REMINDER_MINUTES
+
+    # 리스트의 모든 요소가 int인지 검증
+    try:
+        minutes_before = [int(m) for m in minutes_before]
+    except (TypeError, ValueError) as e:
+        logger.warning(
+            "❌ 리마인더 등록 실패: minutes_before의 요소가 정수가 아닙니다: %s",
+            e
+        )
+        from config import DEFAULT_REMINDER_MINUTES
+        minutes_before = DEFAULT_REMINDER_MINUTES
+
     try:
         event_dt = datetime.fromisoformat(event_datetime_str).astimezone(tz)
     except Exception as e:
