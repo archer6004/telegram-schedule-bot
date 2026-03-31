@@ -193,7 +193,7 @@ class TestCoordinator:
 
     async def _execute_step(self, chat_id: int, step, scenario: TestScenario):
         """
-        테스트 단계 실행
+        테스트 단계 실행 (타임아웃 처리 포함)
 
         Args:
             chat_id: 테스트 사용자 chat_id
@@ -203,6 +203,19 @@ class TestCoordinator:
         if not self.telegram_client:
             raise Exception("Telegram 클라이언트가 초기화되지 않았습니다.")
 
+        try:
+            # ✅ 각 step에 타임아웃 적용
+            return await asyncio.wait_for(
+                self._execute_step_impl(chat_id, step, scenario),
+                timeout=step.timeout
+            )
+        except asyncio.TimeoutError:
+            raise Exception(f"타임아웃: {step.timeout}초 초과 ({step.name})")
+        except Exception as e:
+            raise e
+
+    async def _execute_step_impl(self, chat_id: int, step, scenario: TestScenario):
+        """실제 step 구현"""
         if step.action == "send_message":
             # 메시지 전송
             logger.debug(f"  [send_message] {step.value}")
@@ -218,6 +231,8 @@ class TestCoordinator:
                     )
                     if not verified:
                         raise Exception(f"응답 검증 실패: '{step.expected}' 미포함")
+            except asyncio.TimeoutError:
+                raise Exception(f"메시지 전송 타임아웃 ({step.timeout}초)")
             except Exception as e:
                 raise Exception(f"메시지 전송 실패: {e}")
 
@@ -236,6 +251,8 @@ class TestCoordinator:
                     )
                     if not verified:
                         raise Exception(f"응답 검증 실패: '{step.expected}' 미포함")
+            except asyncio.TimeoutError:
+                raise Exception(f"버튼 클릭 타임아웃 ({step.timeout}초)")
             except Exception as e:
                 raise Exception(f"버튼 클릭 실패: {e}")
 
@@ -255,6 +272,8 @@ class TestCoordinator:
                 )
                 if not verified:
                     raise Exception(f"검증 실패: '{step.expected}' 미포함")
+            except asyncio.TimeoutError:
+                raise Exception(f"검증 타임아웃 ({step.timeout}초)")
             except Exception as e:
                 raise Exception(f"검증 오류: {e}")
 

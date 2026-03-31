@@ -68,7 +68,7 @@ class TestAccountManager:
 
     async def setup_test_accounts(self) -> Dict[str, int]:
         """
-        테스트 계정 초기화 및 생성
+        테스트 계정 초기화 및 생성 (Google Token Mock 포함)
 
         Returns:
             {account_id: chat_id} 매핑
@@ -98,12 +98,48 @@ class TestAccountManager:
                     account_info.chat_id = chat_id
                     logger.info(f"✅ 새로운 테스트 계정 생성: {account_id} (chat_id={chat_id})")
 
+                # ✅ Google Token Mock 설정 (google_connected=True인 경우)
+                if account_info.google_connected:
+                    mock_token = self._create_mock_google_token(account_id, account_info.chat_id)
+                    self.db.save_google_token(account_info.chat_id, mock_token)
+                    logger.info(f"✅ Google Token Mock 저장: {account_id}")
+
                 result[account_id] = account_info.chat_id
 
             except Exception as e:
                 logger.error(f"❌ 테스트 계정 설정 실패 {account_id}: {e}")
 
         return result
+
+    def _create_mock_google_token(self, account_id: str, chat_id: int) -> str:
+        """
+        테스트용 Mock Google Token 생성
+
+        Args:
+            account_id: 테스트 계정 ID
+            chat_id: Telegram chat ID
+
+        Returns:
+            Mock token (JSON 형식)
+        """
+        import json
+        from datetime import datetime, timedelta
+
+        # Mock OAuth 토큰 (실제 토큰 구조 모방)
+        mock_token = {
+            "access_token": f"mock_access_token_{chat_id}",
+            "refresh_token": f"mock_refresh_token_{chat_id}",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "https://www.googleapis.com/auth/calendar",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "client_id": "mock_client_id",
+            "client_secret": "mock_client_secret",
+            "expiry": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+            "test_account": True
+        }
+
+        return json.dumps(mock_token)
 
     async def cleanup_test_accounts(self) -> bool:
         """

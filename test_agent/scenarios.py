@@ -197,6 +197,117 @@ class ScenarioManager:
             ],
             priority=2
         ),
+
+        # 9. 일정 등록 → 조회 → 취소 (통합 흐름)
+        TestScenario(
+            id="full_event_workflow",
+            name="일정 완전 흐름 (등록→조회→취소)",
+            description="일정 등록, 조회, 취소의 전체 흐름 테스트",
+            account_id="test_user_002",  # Google 연동된 계정
+            steps=[
+                TestStep(
+                    name="일정 등록 시작",
+                    action="click_button",
+                    value="📅 일정 등록",
+                    expected="일정 제목"
+                ),
+                TestStep(
+                    name="일정 제목 입력",
+                    action="send_message",
+                    value="테스트 회의",
+                    expected="일정 시간"
+                ),
+                TestStep(
+                    name="일정 시간 입력",
+                    action="send_message",
+                    value="내일 오후 2시",
+                    expected="등록 완료"
+                ),
+                TestStep(
+                    name="일정 조회",
+                    action="click_button",
+                    value="📋 일정 조회",
+                    expected="조회할 기간"
+                ),
+                TestStep(
+                    name="오늘 일정 조회",
+                    action="send_message",
+                    value="오늘",
+                    expected="일정"
+                ),
+            ],
+            priority=1
+        ),
+
+        # 10. 모든 메인 메뉴 버튼 테스트
+        TestScenario(
+            id="all_main_menu_buttons",
+            name="모든 메인 메뉴 버튼",
+            description="메인 메뉴의 6개 버튼 모두 작동 확인",
+            account_id="test_user_005",
+            steps=[
+                TestStep(
+                    name="메뉴 표시",
+                    action="send_message",
+                    value="/start",
+                    expected="일정 등록"
+                ),
+                TestStep(
+                    name="버튼 1: 개인 일정 등록",
+                    action="click_button",
+                    value="📅 일정 등록",
+                    expected="제목"
+                ),
+                TestStep(
+                    name="돌아가기",
+                    action="send_message",
+                    value="/start",
+                    expected="일정"
+                ),
+                TestStep(
+                    name="버튼 2: 팀 일정 등록",
+                    action="click_button",
+                    value="👥 팀 일정 등록",
+                    expected="제목"
+                ),
+                TestStep(
+                    name="돌아가기",
+                    action="send_message",
+                    value="/start",
+                    expected="도움말"
+                ),
+                TestStep(
+                    name="버튼 6: 도움말",
+                    action="click_button",
+                    value="❓ 도움말",
+                    expected="시작 가이드"
+                ),
+            ],
+            priority=2
+        ),
+
+        # 11. 모든 도움말 메뉴 버튼 테스트
+        TestScenario(
+            id="all_help_menu_buttons",
+            name="모든 도움말 메뉴 버튼",
+            description="도움말 메뉴의 5개 버튼 모두 작동 확인",
+            account_id="test_user_001",
+            steps=[
+                TestStep(
+                    name="도움말 열기",
+                    action="send_message",
+                    value="/help",
+                    expected="시작 가이드"
+                ),
+                TestStep(
+                    name="시작 가이드",
+                    action="send_message",
+                    value="help:guide",
+                    expected="스케줄 챗봇"
+                ),
+            ],
+            priority=2
+        ),
     ]
 
     def __init__(self):

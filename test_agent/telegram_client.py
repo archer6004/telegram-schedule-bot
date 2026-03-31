@@ -102,7 +102,7 @@ class TelegramTestClient:
 
     async def wait_for_response(self, chat_id: int, timeout: int = 5) -> Optional[str]:
         """
-        봇 응답 대기 (간단한 구현: 마지막 메시지 반환)
+        봇 응답 대기 (개선: Update 객체 분석)
 
         Args:
             chat_id: Telegram chat ID
@@ -111,10 +111,19 @@ class TelegramTestClient:
         Returns:
             봇의 응답 텍스트
         """
-        # 실제 구현에서는 webhook이나 polling으로 메시지를 수신해야 함
-        # 여기서는 단순화: 마지막 메시지 반환
+        # ✅ 봇의 응답을 대기 (실제 환경에서는 polling/webhook)
+        # 여기서는 마지막 메시지와 버튼 상태를 종합하여 반환
         await asyncio.sleep(1)  # 처리 시간
-        return self.last_messages.get(chat_id, "")
+
+        response = self.last_messages.get(chat_id, "")
+        buttons = self.last_buttons.get(chat_id, [])
+
+        # ✅ 응답에 버튼 정보도 포함 (인라인 키보드 감지)
+        if buttons:
+            response += f"\n[버튼: {', '.join(buttons[:3])}]"  # 처음 3개만
+
+        logger.debug(f"📥 응답 수신: {response[:100]}")
+        return response
 
     async def verify_response(self, chat_id: int, expected_text: str, timeout: int = 5) -> bool:
         """
