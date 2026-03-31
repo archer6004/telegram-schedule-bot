@@ -22,8 +22,10 @@ from handlers.calendar_handler import (
 )
 from handlers.wizard_handler import wizard_callback
 from handlers.team_handler import team_callbacks
+from handlers.test_handler import test_handlers, set_coordinator
 from handlers.error_handler import handle_error
 from services.scheduler_service import init_scheduler
+from test_agent.coordinator import TestCoordinator
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -39,6 +41,12 @@ def main():
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
+    # ── 테스트 에이전트 초기화 ─────────────────────────────
+    import db as db_module
+    coordinator = TestCoordinator(db_module, None)  # telegram_client는 나중에 추가 가능
+    set_coordinator(coordinator)
+    logger.info("✅ Test Agent Coordinator 초기화 완료")
+
     # ── ConversationHandlers (우선순위 높음) ───────────────
     app.add_handler(registration_conv())
     app.add_handler(connect_conv())
@@ -52,6 +60,10 @@ def main():
     app.add_handler(CommandHandler("free",   cmd_free))
     app.add_handler(CommandHandler("admin",      cmd_admin))
     app.add_handler(CommandHandler("setup_team", cmd_setup_team))
+
+    # ── 테스트 에이전트 커맨드 ────────────────────────────
+    for handler in test_handlers():
+        app.add_handler(handler)
 
     # ── 인라인 버튼 콜백 ───────────────────────────────────
     # 위저드 콜백을 먼저 등록 (pattern 필터로 wiz_* 만 처리)
