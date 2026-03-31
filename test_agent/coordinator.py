@@ -6,13 +6,15 @@ Test Coordinator
 
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from test_agent.test_accounts import TestAccountManager, TestAccount
 from test_agent.scenarios import ScenarioManager, TestScenario
 from test_agent.analyzer import TestAnalyzer, TestResult
 from test_agent.report_generator import ReportGenerator
+from test_agent.telegram_client import TelegramTestClient
+from test_agent.log_collector import LogCollector
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +22,29 @@ logger = logging.getLogger(__name__)
 class TestCoordinator:
     """테스트 에이전트의 코디네이터 (메인 로직)"""
 
-    def __init__(self, db, telegram_client):
+    def __init__(self, db, bot):
         """
         Args:
             db: Database module (db/__init__.py)
-            telegram_client: Telegram API 클라이언트
+            bot: telegram.ext.bot.Bot 인스턴스
         """
         self.db = db
-        self.telegram_client = telegram_client
+        self.bot = bot
         self.account_manager = TestAccountManager(db)
         self.scenario_manager = ScenarioManager()
         self.analyzer = TestAnalyzer()
         self.report_generator = ReportGenerator()
+
+        # Telegram 클라이언트 초기화
+        if bot:
+            self.telegram_client = TelegramTestClient(bot)
+        else:
+            self.telegram_client = None
+            logger.warning("⚠️ Telegram Bot이 없습니다. 테스트 기능이 제한됩니다.")
+
+        # 로그 수집기 초기화
+        log_path = "/Users/josh/Library/CloudStorage/GoogleDrive-amorgan6004@gmail.com/내 드라이브/[chatbot] basic/telegram_schedule_bot/bot.log"
+        self.log_collector = LogCollector(log_path)
 
         self.start_time = None
         self.end_time = None
@@ -50,6 +63,9 @@ class TestCoordinator:
         self.start_time = datetime.now()
 
         try:
+            # 0️⃣ 로그 수집기 초기화
+            self.log_collector.set_time_window(self.start_time, datetime.now() + timedelta(seconds=300))
+
             # 1️⃣ 테스트 계정 초기화
             logger.info("📋 Step 1: 테스트 계정 초기화")
             account_ids = await self.account_manager.setup_test_accounts()
@@ -184,13 +200,24 @@ class TestCoordinator:
             step: TestStep 객체
             scenario: 속한 시나리오 (로깅용)
         """
+        if not self.telegram_client:
+            raise Exception("Telegram 클라이언트가 초기화되지 않았습니다.")
+
         if step.action == "send_message":
             # 메시지 전송
             logger.debug(f"  [send_message] {step.value}")
             try:
-                # 실제 메시지 전송 (Telegram API 사용)
-                # 여기서는 placeholder
-                await asyncio.sleep(0.5)  # API 호출 시뮬레이션
+                success = await self.telegram_client.send_message(chat_id, step.value)
+                if not success:
+                    raise Exception("메시지 전송 실패")
+
+                # 기대값이 있으면 응답 검증
+                if step.expected:
+                    verified = await self.telegram_client.verify_response(
+                        chat_id, step.expected, timeout=step.timeout
+                    )
+                    if not verified:
+                        raise Exception(f"응답 검증 실패: '{step.expected}' 미포함")
             except Exception as e:
                 raise Exception(f"메시지 전송 실패: {e}")
 
@@ -198,8 +225,17 @@ class TestCoordinator:
             # 버튼 클릭
             logger.debug(f"  [click_button] {step.value}")
             try:
-                # 버튼 클릭 (콜백 실행)
-                await asyncio.sleep(0.5)  # API 호출 시뮬레이션
+                success = await self.telegram_client.click_button(chat_id, step.value)
+                if not success:
+                    raise Exception("버튼 클릭 실패")
+
+                # 기대값이 있으면 응답 검증
+                if step.expected:
+                    verified = await self.telegram_client.verify_response(
+                        chat_id, step.expected, timeout=step.timeout
+                    )
+                    if not verified:
+                        raise Exception(f"응답 검증 실패: '{step.expected}' 미포함")
             except Exception as e:
                 raise Exception(f"버튼 클릭 실패: {e}")
 
@@ -212,8 +248,15 @@ class TestCoordinator:
         elif step.action == "assert":
             # 확인 (응답 검증)
             logger.debug(f"  [assert] {step.value} == {step.expected}")
-            # 실제로는 API 응답을 검증해야 함
-            pass
+            # 특정 값 검증
+            try:
+                verified = await self.telegram_client.verify_response(
+                    chat_id, step.expected or step.value, timeout=step.timeout
+                )
+                if not verified:
+                    raise Exception(f"검증 실패: '{step.expected}' 미포함")
+            except Exception as e:
+                raise Exception(f"검증 오류: {e}")
 
     def _get_duration(self) -> float:
         """전체 실행 시간 (초)"""

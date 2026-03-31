@@ -43,7 +43,7 @@ def main():
 
     # ── 테스트 에이전트 초기화 ─────────────────────────────
     import db as db_module
-    coordinator = TestCoordinator(db_module, None)  # telegram_client는 나중에 추가 가능
+    coordinator = TestCoordinator(db_module, app.bot)
     set_coordinator(coordinator)
     logger.info("✅ Test Agent Coordinator 초기화 완료")
 
